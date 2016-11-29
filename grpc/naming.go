@@ -83,6 +83,7 @@ func (w *watcher) run() {
 				return
 			}
 		}
+		erroredLoops = 0
 		added := targetsSubstraction(freshTargets, w.existingTargets)
 		deleted := targetsSubstraction(w.existingTargets, freshTargets)
 		updates := targetsToUpdate(added, naming.Add)
