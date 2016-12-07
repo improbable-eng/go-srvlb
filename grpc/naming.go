@@ -49,7 +49,7 @@ type watcher struct {
 	resolver        srv.Resolver
 	existingTargets []*srv.Target
 	next            chan *updatesOrErr
-	close           chan bool
+	close           chan struct{}
 	erroredLoops    int
 }
 
@@ -59,6 +59,7 @@ func startNewWatcher(domainName string, resolver srv.Resolver, targets []*srv.Ta
 		resolver:        resolver,
 		existingTargets: targets,
 		next:            make(chan *updatesOrErr),
+		close:           make(chan struct{}),
 	}
 	go watcher.run()
 	return watcher
@@ -102,7 +103,7 @@ func (w *watcher) Next() ([]*naming.Update, error) {
 
 // Close closes the Watcher.
 func (w *watcher) Close() {
-	w.close <- true
+	close(w.close)
 }
 
 func targetsToUpdate(targets []*srv.Target, op naming.Operation) []*naming.Update {
