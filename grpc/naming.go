@@ -72,6 +72,8 @@ func (w *watcher) run() {
 		timeToSleep := targetsMinTtl(w.existingTargets)
 		select {
 		case <-w.close:
+			w.next <- &updatesOrErr{err: fmt.Errorf("closed watcher")}
+			close(w.next)
 			return
 		case <-time.Tick(timeToSleep):
 		}
