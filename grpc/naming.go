@@ -73,6 +73,8 @@ func (w *watcher) run() {
 		timeToSleep := targetsMinTtl(w.existingTargets)
 		select {
 		case <-w.close:
+			w.next <- &updatesOrErr{err: fmt.Errorf("closed watcher")}
+			close(w.next)
 			return
 		case <-time.Tick(timeToSleep):
 		}
@@ -84,6 +86,7 @@ func (w *watcher) run() {
 				return
 			}
 		}
+		erroredLoops = 0
 		added := targetsSubstraction(freshTargets, w.existingTargets)
 		deleted := targetsSubstraction(w.existingTargets, freshTargets)
 		updates := targetsToUpdate(added, naming.Add)
