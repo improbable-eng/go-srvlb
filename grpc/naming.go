@@ -69,14 +69,14 @@ func (w *watcher) run() {
 	// First make sure that the initial read is an Add operation of the whole set.
 	w.next <- &updatesOrErr{updates: targetsToUpdate(w.existingTargets, naming.Add)}
 	erroredLoops := 0
-	for true {
+	for {
 		timeToSleep := targetsMinTtl(w.existingTargets)
 		select {
 		case <-w.close:
 			w.next <- &updatesOrErr{err: fmt.Errorf("closed watcher")}
 			close(w.next)
 			return
-		case <-time.Tick(timeToSleep):
+		case <-time.After(timeToSleep):
 		}
 		freshTargets, err := w.resolver.Lookup(w.domainName)
 		if err != nil {
