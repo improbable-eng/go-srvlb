@@ -78,7 +78,7 @@ func (w *watcher) Next() ([]*naming.Update, error) {
 	w.mutex.Lock()
 	defer w.mutex.Unlock()
 
-	if w.closed == 1 {
+	if atomic.LoadInt32(&w.closed) == 1 {
 		return nil, errClosed
 	}
 	nextFetchTime := w.lastFetch.Add(targetsMinTtl(w.existingTargets))
