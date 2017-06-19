@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/jonboulle/clockwork"
-	"github.com/mwitkow/go-srvlb/srv"
-	"github.com/mwitkow/go-srvlb/srv/mocks"
+	"github.com/improbable-eng/go-srvlb/srv"
+	"github.com/improbable-eng/go-srvlb/srv/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/naming"

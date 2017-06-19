@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 
 	"github.com/jonboulle/clockwork"
-	"github.com/mwitkow/go-srvlb/srv"
+	"github.com/improbable-eng/go-srvlb/srv"
 	"google.golang.org/grpc/naming"
 )
 

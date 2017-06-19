@@ -1,7 +1,7 @@
 # Go gRPC DNS SRV Load Balancer
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/mwitkow/go-srvlb)](http://goreportcard.com/report/mwitkow/go-srvlb)
-[![GoDoc](http://img.shields.io/badge/GoDoc-Reference-blue.svg)](https://godoc.org/github.com/mwitkow/go-srvlb)
+[![Go Report Card](https://goreportcard.com/badge/github.com/improbable-eng/go-srvlb)](http://goreportcard.com/report/improbable-eng/go-srvlb)
+[![GoDoc](http://img.shields.io/badge/GoDoc-Reference-blue.svg)](https://godoc.org/github.com/improbable-eng/go-srvlb)
 [![Apache 2.0 License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Build Status](https://travis-ci.org/improbable-eng/go-srvlb.svg?branch=master)](https://travis-ci.org/improbable-eng/go-srvlb)
 
