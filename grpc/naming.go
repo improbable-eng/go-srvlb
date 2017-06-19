@@ -1,14 +1,17 @@
 // Copyright 2016 Michal Witkowski. All Rights Reserved.
 // See LICENSE for licensing terms.
 
-
-
 package grpcsrvlb
 
 import (
 	"fmt"
 	"time"
 
+	"errors"
+	"sync"
+	"sync/atomic"
+
+	"github.com/jonboulle/clockwork"
 	"github.com/mwitkow/go-srvlb/srv"
 	"google.golang.org/grpc/naming"
 )
@@ -19,6 +22,8 @@ var (
 	// MaximumConsecutiveErrors identifies how many iterations of bad SRV Lookups to tolerate in a loop.
 	MaximumConsecutiveErrors = 5
 )
+
+var errClosed = errors.New("go-srvlb: closed")
 
 // resolver implements the naming.Resolver interface from gRPC.
 type resolver struct {
@@ -48,9 +53,11 @@ type watcher struct {
 	domainName      string
 	resolver        srv.Resolver
 	existingTargets []*srv.Target
-	next            chan *updatesOrErr
-	close           chan struct{}
 	erroredLoops    int
+	lastFetch       time.Time
+	closed          int32
+	clock           clockwork.Clock
+	mutex           sync.Mutex
 }
 
 func startNewWatcher(domainName string, resolver srv.Resolver, targets []*srv.Target) *watcher {
@@ -58,55 +65,50 @@ func startNewWatcher(domainName string, resolver srv.Resolver, targets []*srv.Ta
 		domainName:      domainName,
 		resolver:        resolver,
 		existingTargets: targets,
-		next:            make(chan *updatesOrErr),
-		close:           make(chan struct{}),
+		lastFetch:       time.Unix(0, 0),
+		clock:           clockwork.NewRealClock(),
 	}
-	go watcher.run()
 	return watcher
-}
-
-func (w *watcher) run() {
-	// First make sure that the initial read is an Add operation of the whole set.
-	w.next <- &updatesOrErr{updates: targetsToUpdate(w.existingTargets, naming.Add)}
-	erroredLoops := 0
-	for {
-		timeToSleep := targetsMinTtl(w.existingTargets)
-		select {
-		case <-w.close:
-			w.next <- &updatesOrErr{err: fmt.Errorf("closed watcher")}
-			close(w.next)
-			return
-		case <-time.After(timeToSleep):
-		}
-		freshTargets, err := w.resolver.Lookup(w.domainName)
-		if err != nil {
-			erroredLoops += 1
-			if erroredLoops > MaximumConsecutiveErrors {
-				w.next <- &updatesOrErr{err: fmt.Errorf("SRV watcher failed after %d tries: %v", MaximumConsecutiveErrors, err)}
-				return
-			}
-		}
-		erroredLoops = 0
-		added := targetsSubstraction(freshTargets, w.existingTargets)
-		deleted := targetsSubstraction(w.existingTargets, freshTargets)
-		updates := targetsToUpdate(added, naming.Add)
-		updates = append(updates, targetsToUpdate(deleted, naming.Delete)...)
-		w.next <- &updatesOrErr{updates: updates}
-		w.existingTargets = freshTargets
-	}
 }
 
 // Next blocks until an update or error happens. It may return one or more
 // updates. The first call should get the full set of the results. It should
 // return an error if and only if Watcher cannot recover.
 func (w *watcher) Next() ([]*naming.Update, error) {
-	uE := <-w.next
-	return uE.updates, uE.err
+	w.mutex.Lock()
+	defer w.mutex.Unlock()
+
+	if w.closed == 1 {
+		return nil, errClosed
+	}
+	nextFetchTime := w.lastFetch.Add(targetsMinTtl(w.existingTargets))
+	timeUntilFetch := nextFetchTime.Sub(w.clock.Now())
+
+	if timeUntilFetch > 0 {
+		w.clock.Sleep(timeUntilFetch)
+	}
+
+	var lastErr error
+	for i := 0; i < MaximumConsecutiveErrors; i++ {
+		freshTargets, err := w.resolver.Lookup(w.domainName)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		added := targetsSubstraction(freshTargets, w.existingTargets)
+		deleted := targetsSubstraction(w.existingTargets, freshTargets)
+		updates := targetsToUpdate(added, naming.Add)
+		updates = append(updates, targetsToUpdate(deleted, naming.Delete)...)
+		w.existingTargets = freshTargets
+		w.lastFetch = w.clock.Now()
+		return updates, nil
+	}
+	return nil, fmt.Errorf("SRV watcher failed after %d tries: %v", MaximumConsecutiveErrors, lastErr)
 }
 
 // Close closes the Watcher.
 func (w *watcher) Close() {
-	close(w.close)
+	atomic.StoreInt32(&w.closed, 1)
 }
 
 func targetsToUpdate(targets []*srv.Target, op naming.Operation) []*naming.Update {
