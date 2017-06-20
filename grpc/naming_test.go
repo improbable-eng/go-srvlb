@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonboulle/clockwork"
 	"github.com/improbable-eng/go-srvlb/srv"
 	"github.com/improbable-eng/go-srvlb/srv/mocks"
+	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/naming"
@@ -18,13 +18,7 @@ func Test_NonBlockingBehaviour(t *testing.T) {
 	c := clockwork.NewFakeClock()
 
 	resolver := &mocks.Resolver{}
-	w := &watcher{
-		domainName:      "testing.improbable.io",
-		resolver:        resolver,
-		existingTargets: []*srv.Target{},
-		lastFetch:       time.Unix(0, 0),
-		clock:           c,
-	}
+	w := startNewWatcher("testing.improbable.io", resolver, c)
 
 	resolver.On("Lookup", "testing.improbable.io").Return([]*srv.Target{{
 		DialAddr: "127.0.0.1",
@@ -45,13 +39,7 @@ func Test_BlockForTTL(t *testing.T) {
 	c := clockwork.NewFakeClock()
 
 	resolver := &mocks.Resolver{}
-	w := &watcher{
-		domainName:      "testing.improbable.io",
-		resolver:        resolver,
-		existingTargets: []*srv.Target{},
-		lastFetch:       time.Unix(0, 0),
-		clock:           c,
-	}
+	w := startNewWatcher("testing.improbable.io", resolver, c)
 
 	resTTL := 5 * time.Second
 	resolver.On("Lookup", "testing.improbable.io").Return([]*srv.Target{{
@@ -82,13 +70,7 @@ func Test_WatcherClosed(t *testing.T) {
 	c := clockwork.NewFakeClock()
 
 	resolver := &mocks.Resolver{}
-	w := &watcher{
-		domainName:      "testing.improbable.io",
-		resolver:        resolver,
-		existingTargets: []*srv.Target{},
-		lastFetch:       time.Unix(0, 0),
-		clock:           c,
-	}
+	w := startNewWatcher("testing.improbable.io", resolver, c)
 
 	w.Close()
 
@@ -100,13 +82,7 @@ func Test_ResolverRetriesOnce(t *testing.T) {
 	c := clockwork.NewFakeClock()
 
 	resolver := &mocks.Resolver{}
-	w := &watcher{
-		domainName:      "testing.improbable.io",
-		resolver:        resolver,
-		existingTargets: []*srv.Target{},
-		lastFetch:       time.Unix(0, 0),
-		clock:           c,
-	}
+	w := startNewWatcher("testing.improbable.io", resolver, c)
 
 	resolver.On("Lookup", "testing.improbable.io").Return(nil, fmt.Errorf("datastore: concurrent transaction")).Once()
 
@@ -125,14 +101,7 @@ func Test_ResolverRetriesFailsEventually(t *testing.T) {
 	c := clockwork.NewFakeClock()
 
 	resolver := &mocks.Resolver{}
-	w := &watcher{
-		domainName:      "testing.improbable.io",
-		resolver:        resolver,
-		existingTargets: []*srv.Target{},
-		lastFetch:       time.Unix(0, 0),
-		clock:           c,
-	}
-
+	w := startNewWatcher("testing.improbable.io", resolver, c)
 	resolver.On("Lookup", "testing.improbable.io").Return(nil, fmt.Errorf("datastore: concurrent transaction")).Times(MaximumConsecutiveErrors)
 
 	_, err := w.Next()
