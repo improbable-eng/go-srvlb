@@ -25,7 +25,7 @@ This is *alpha* software. It should work, but key components are missing:
 
  * [ ] unit tests
  * [ ] integration tests with gRPC
- * [ ] `srv.Resolver` implementation that is concurrent and respects `TTL`, see [miekg/dns](https://github.com/miekg/dns)
+ * [ ] `srv.Resolver` implementation that respects `TTL`, see [miekg/dns](https://github.com/miekg/dns)
 
 
 # License
