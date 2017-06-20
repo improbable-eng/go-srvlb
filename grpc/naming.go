@@ -11,8 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/jonboulle/clockwork"
 	"github.com/improbable-eng/go-srvlb/srv"
+	"github.com/jonboulle/clockwork"
 	"google.golang.org/grpc/naming"
 )
 
@@ -37,11 +37,7 @@ func New(srvResolver srv.Resolver) naming.Resolver {
 
 // Resolve creates a Watcher for target.
 func (r *resolver) Resolve(target string) (naming.Watcher, error) {
-	targets, err := r.srvResolver.Lookup(target)
-	if err != nil {
-		return nil, fmt.Errorf("failed initial SRV resolution: %v", err)
-	}
-	return startNewWatcher(target, r.srvResolver, targets), nil
+	return startNewWatcher(target, r.srvResolver, clockwork.NewRealClock()), nil
 }
 
 type updatesOrErr struct {
@@ -60,13 +56,12 @@ type watcher struct {
 	mutex           sync.Mutex
 }
 
-func startNewWatcher(domainName string, resolver srv.Resolver, targets []*srv.Target) *watcher {
+func startNewWatcher(domainName string, resolver srv.Resolver, clock clockwork.Clock) *watcher {
 	watcher := &watcher{
-		domainName:      domainName,
-		resolver:        resolver,
-		existingTargets: targets,
-		lastFetch:       time.Unix(0, 0),
-		clock:           clockwork.NewRealClock(),
+		domainName: domainName,
+		resolver:   resolver,
+		lastFetch:  time.Unix(0, 0),
+		clock:      clock,
 	}
 	return watcher
 }
