@@ -19,8 +19,9 @@ import (
 var (
 	// MinimumRefreshInterval decides the maximum sleep time between SRV Lookups, otherwise controlled by TTL of records.
 	MinimumRefreshInterval = 5 * time.Second
-	// MaximumConsecutiveErrors identifies how many iterations of bad SRV Lookups to tolerate in a loop.
-	MaximumConsecutiveErrors = 5
+
+	// NoRetryLimit specifies that there is no limit to number of srv lookup failures.
+	NoRetryLimit = -1
 )
 
 var errClosed = errors.New("go-srvlb: closed")
@@ -28,16 +29,32 @@ var errClosed = errors.New("go-srvlb: closed")
 // resolver implements the naming.Resolver interface from gRPC.
 type resolver struct {
 	srvResolver srv.Resolver
+	maxConsecutiveErrors int
+}
+
+type SrvResolverOptions func(*resolver)
+
+// MaximumConsecutiveErrors identifies how many consecutive iterations of bad SRV Lookups to tolerate in a loop.
+// After this limit is reached all the srv resolutions will stop.
+// Default value is -1. -1 means there is no limit.
+func WithMaximumConsecutiveErrors(maxErr int) SrvResolverOptions {
+	return func (resolver *resolver) {
+		resolver.maxConsecutiveErrors = maxErr
+	}
 }
 
 // New creates a gRPC naming.Resolver that is backed by an SRV lookup resolver.
-func New(srvResolver srv.Resolver) naming.Resolver {
-	return &resolver{srvResolver: srvResolver}
+func New(srvResolver srv.Resolver, options ...SrvResolverOptions) naming.Resolver {
+	res :=  &resolver{srvResolver: srvResolver, maxConsecutiveErrors: NoRetryLimit}
+	for _,opt := range options {
+		opt(res)
+	}
+	return res
 }
 
 // Resolve creates a Watcher for target.
 func (r *resolver) Resolve(target string) (naming.Watcher, error) {
-	return startNewWatcher(target, r.srvResolver, clockwork.NewRealClock()), nil
+	return startNewWatcher(target, r.srvResolver, clockwork.NewRealClock(), r.maxConsecutiveErrors), nil
 }
 
 type updatesOrErr struct {
@@ -54,14 +71,16 @@ type watcher struct {
 	closed          int32
 	clock           clockwork.Clock
 	mutex           sync.Mutex
+	maxConsecutiveErrors int
 }
 
-func startNewWatcher(domainName string, resolver srv.Resolver, clock clockwork.Clock) *watcher {
+func startNewWatcher(domainName string, resolver srv.Resolver, clock clockwork.Clock, maxErrors int) *watcher {
 	watcher := &watcher{
 		domainName: domainName,
 		resolver:   resolver,
 		lastFetch:  time.Unix(0, 0),
 		clock:      clock,
+		maxConsecutiveErrors:maxErrors,
 	}
 	return watcher
 }
@@ -84,10 +103,15 @@ func (w *watcher) Next() ([]*naming.Update, error) {
 	}
 
 	var lastErr error
-	for i := 0; i < MaximumConsecutiveErrors; i++ {
+	consecutiveErrors := 0
+	for {
 		freshTargets, err := w.resolver.Lookup(w.domainName)
 		if err != nil {
 			lastErr = err
+			consecutiveErrors += 1
+			if w.maxConsecutiveErrors != NoRetryLimit && consecutiveErrors >= w.maxConsecutiveErrors {
+				break
+			}
 			continue
 		}
 		added := targetsSubstraction(freshTargets, w.existingTargets)
@@ -98,7 +122,7 @@ func (w *watcher) Next() ([]*naming.Update, error) {
 		w.lastFetch = w.clock.Now()
 		return updates, nil
 	}
-	return nil, fmt.Errorf("SRV watcher failed after %d tries: %v", MaximumConsecutiveErrors, lastErr)
+	return nil, fmt.Errorf("SRV watcher failed after %d tries: %v", w.maxConsecutiveErrors, lastErr)
 }
 
 // Close closes the Watcher.
