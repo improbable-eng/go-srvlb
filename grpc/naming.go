@@ -13,23 +13,27 @@ import (
 
 	"github.com/improbable-eng/go-srvlb/srv"
 	"github.com/jonboulle/clockwork"
+	"github.com/jpillora/backoff"
 	"google.golang.org/grpc/naming"
+)
+
+const (
+	// NoRetryLimit specifies that there is no limit to number of srv lookup failures.
+	NoRetryLimit = -1
 )
 
 var (
 	// MinimumRefreshInterval decides the maximum sleep time between SRV Lookups, otherwise controlled by TTL of records.
 	MinimumRefreshInterval = 5 * time.Second
 
-	// NoRetryLimit specifies that there is no limit to number of srv lookup failures.
-	NoRetryLimit = -1
+	errClosed = errors.New("go-srvlb: closed")
 )
-
-var errClosed = errors.New("go-srvlb: closed")
 
 // resolver implements the naming.Resolver interface from gRPC.
 type resolver struct {
-	srvResolver srv.Resolver
+	srvResolver          srv.Resolver
 	maxConsecutiveErrors int
+	retryBackoff         *backoff.Backoff
 }
 
 type SrvResolverOptions func(*resolver)
@@ -38,15 +42,28 @@ type SrvResolverOptions func(*resolver)
 // After this limit is reached all the srv resolutions will stop.
 // Default value is -1. -1 means there is no limit.
 func WithMaximumConsecutiveErrors(maxErr int) SrvResolverOptions {
-	return func (resolver *resolver) {
+	return func(resolver *resolver) {
 		resolver.maxConsecutiveErrors = maxErr
+	}
+}
+
+// WithRetryBackoff sets or clears the backoff when retrying after lookup failures.
+// By default, an exponential backoff with a maximum of MinimumRefreshInterval is used.
+// Pass nil to clear backoff, causing instant retries.
+func WithRetryBackoff(retryBackoff *backoff.Backoff) SrvResolverOptions {
+	return func(resolver *resolver) {
+		resolver.retryBackoff = retryBackoff
 	}
 }
 
 // New creates a gRPC naming.Resolver that is backed by an SRV lookup resolver.
 func New(srvResolver srv.Resolver, options ...SrvResolverOptions) naming.Resolver {
-	res :=  &resolver{srvResolver: srvResolver, maxConsecutiveErrors: NoRetryLimit}
-	for _,opt := range options {
+	res := &resolver{
+		srvResolver:          srvResolver,
+		maxConsecutiveErrors: NoRetryLimit,
+		retryBackoff:         &backoff.Backoff{Max: MinimumRefreshInterval},
+	}
+	for _, opt := range options {
 		opt(res)
 	}
 	return res
@@ -54,7 +71,7 @@ func New(srvResolver srv.Resolver, options ...SrvResolverOptions) naming.Resolve
 
 // Resolve creates a Watcher for target.
 func (r *resolver) Resolve(target string) (naming.Watcher, error) {
-	return startNewWatcher(target, r.srvResolver, clockwork.NewRealClock(), r.maxConsecutiveErrors), nil
+	return startNewWatcher(target, r.srvResolver, clockwork.NewRealClock(), r.maxConsecutiveErrors, r.retryBackoff), nil
 }
 
 type updatesOrErr struct {
@@ -63,24 +80,29 @@ type updatesOrErr struct {
 }
 
 type watcher struct {
-	domainName      string
-	resolver        srv.Resolver
-	existingTargets []*srv.Target
-	erroredLoops    int
-	lastFetch       time.Time
-	closed          int32
-	clock           clockwork.Clock
-	mutex           sync.Mutex
+	domainName           string
+	resolver             srv.Resolver
+	existingTargets      []*srv.Target
+	erroredLoops         int
+	lastFetch            time.Time
+	closed               int32
+	clock                clockwork.Clock
+	mutex                sync.Mutex
 	maxConsecutiveErrors int
+	retryBackoff         *backoff.Backoff
 }
 
-func startNewWatcher(domainName string, resolver srv.Resolver, clock clockwork.Clock, maxErrors int) *watcher {
+func startNewWatcher(domainName string, resolver srv.Resolver, clock clockwork.Clock, maxErrors int, retryBackoff *backoff.Backoff) *watcher {
+	if retryBackoff != nil {
+		retryBackoff = &*retryBackoff
+	}
 	watcher := &watcher{
-		domainName: domainName,
-		resolver:   resolver,
-		lastFetch:  time.Unix(0, 0),
-		clock:      clock,
-		maxConsecutiveErrors:maxErrors,
+		domainName:           domainName,
+		resolver:             resolver,
+		lastFetch:            time.Unix(0, 0),
+		clock:                clock,
+		maxConsecutiveErrors: maxErrors,
+		retryBackoff:         retryBackoff,
 	}
 	return watcher
 }
@@ -101,6 +123,9 @@ func (w *watcher) Next() ([]*naming.Update, error) {
 	if timeUntilFetch > 0 {
 		w.clock.Sleep(timeUntilFetch)
 	}
+	if w.retryBackoff != nil {
+		w.retryBackoff.Reset()
+	}
 
 	var lastErr error
 	consecutiveErrors := 0
@@ -111,6 +136,9 @@ func (w *watcher) Next() ([]*naming.Update, error) {
 			consecutiveErrors += 1
 			if w.maxConsecutiveErrors != NoRetryLimit && consecutiveErrors >= w.maxConsecutiveErrors {
 				break
+			}
+			if w.retryBackoff != nil {
+				w.clock.Sleep(w.retryBackoff.Duration())
 			}
 			continue
 		}

@@ -18,7 +18,7 @@ func Test_NonBlockingBehaviour(t *testing.T) {
 	c := clockwork.NewFakeClock()
 
 	resolver := &mocks.Resolver{}
-	w := startNewWatcher("testing.improbable.io", resolver, c, NoRetryLimit)
+	w := startNewWatcher("testing.improbable.io", resolver, c, NoRetryLimit, nil)
 
 	resolver.On("Lookup", "testing.improbable.io").Return([]*srv.Target{{
 		DialAddr: "127.0.0.1",
@@ -39,7 +39,7 @@ func Test_BlockForTTL(t *testing.T) {
 	c := clockwork.NewFakeClock()
 
 	resolver := &mocks.Resolver{}
-	w := startNewWatcher("testing.improbable.io", resolver, c, NoRetryLimit)
+	w := startNewWatcher("testing.improbable.io", resolver, c, NoRetryLimit, nil)
 
 	resTTL := 5 * time.Second
 	resolver.On("Lookup", "testing.improbable.io").Return([]*srv.Target{{
@@ -70,7 +70,7 @@ func Test_WatcherClosed(t *testing.T) {
 	c := clockwork.NewFakeClock()
 
 	resolver := &mocks.Resolver{}
-	w := startNewWatcher("testing.improbable.io", resolver, c, NoRetryLimit)
+	w := startNewWatcher("testing.improbable.io", resolver, c, NoRetryLimit, nil)
 
 	w.Close()
 
@@ -82,7 +82,7 @@ func Test_ResolverRetriesOnce(t *testing.T) {
 	c := clockwork.NewFakeClock()
 
 	resolver := &mocks.Resolver{}
-	w := startNewWatcher("testing.improbable.io", resolver, c, NoRetryLimit)
+	w := startNewWatcher("testing.improbable.io", resolver, c, NoRetryLimit, nil)
 
 	resolver.On("Lookup", "testing.improbable.io").Return(nil, fmt.Errorf("datastore: concurrent transaction")).Once()
 
@@ -102,7 +102,7 @@ func Test_ResolverRetriesFailsEventually(t *testing.T) {
 
 	resolver := &mocks.Resolver{}
 	numberOfFailures := 4
-	w := startNewWatcher("testing.improbable.io", resolver, c, numberOfFailures)
+	w := startNewWatcher("testing.improbable.io", resolver, c, numberOfFailures, nil)
 	resolver.On("Lookup", "testing.improbable.io").Return(nil, fmt.Errorf("datastore: concurrent transaction")).Times(numberOfFailures)
 
 	_, err := w.Next()
