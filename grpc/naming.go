@@ -94,7 +94,8 @@ type watcher struct {
 
 func startNewWatcher(domainName string, resolver srv.Resolver, clock clockwork.Clock, maxErrors int, retryBackoff *backoff.Backoff) *watcher {
 	if retryBackoff != nil {
-		retryBackoff = &*retryBackoff
+		backoffCopy := *retryBackoff
+		retryBackoff = &backoffCopy
 	}
 	watcher := &watcher{
 		domainName:           domainName,
