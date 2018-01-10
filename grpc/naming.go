@@ -115,12 +115,8 @@ func (w *watcher) Next() ([]*naming.Update, error) {
 	w.mutex.Lock()
 	defer w.mutex.Unlock()
 
-	if atomic.LoadInt32(&w.closed) == 1 {
-		return nil, errClosed
-	}
 	nextFetchTime := w.lastFetch.Add(targetsMinTtl(w.existingTargets))
 	timeUntilFetch := nextFetchTime.Sub(w.clock.Now())
-
 	if timeUntilFetch > 0 {
 		w.clock.Sleep(timeUntilFetch)
 	}
@@ -131,6 +127,9 @@ func (w *watcher) Next() ([]*naming.Update, error) {
 	var lastErr error
 	consecutiveErrors := 0
 	for {
+		if atomic.LoadInt32(&w.closed) == 1 {
+			return nil, errClosed
+		}
 		freshTargets, err := w.resolver.Lookup(w.domainName)
 		if err != nil {
 			lastErr = err
